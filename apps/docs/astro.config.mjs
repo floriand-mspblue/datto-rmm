@@ -4,7 +4,8 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-  site: 'https://docs.datto-rmm.local', // Update for production
+  site: 'https://josh-fisher.github.io',
+  base: '/datto-rmm',
   integrations: [
     starlight({
       title: 'Datto RMM Docs',
