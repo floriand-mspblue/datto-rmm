@@ -4,7 +4,7 @@
     <strong>A complete toolkit for Datto RMM: API clients, MCP server, and developer tools</strong>
   </p>
   <p align="center">
-    <a href="https://github.com/josh-fisher/datto-rmm/actions"><img src="https://github.com/josh-fisher/datto-rmm/workflows/CI/badge.svg" alt="CI Status"></a>
+    <a href="https://github.com/josh-fisher/datto-rmm/actions/workflows/ci.yml"><img src="https://github.com/josh-fisher/datto-rmm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status"></a>
     <a href="https://www.npmjs.com/package/datto-rmm-api"><img src="https://img.shields.io/npm/v/datto-rmm-api.svg" alt="npm version"></a>
     <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.7-blue.svg" alt="TypeScript"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2021-orange.svg" alt="Rust"></a>
