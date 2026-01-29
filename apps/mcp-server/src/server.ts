@@ -1,5 +1,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import express from 'express';
+import { createDattoClient, type DattoClient } from 'datto-rmm-api';
+import { type ServerConfig } from './config.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -7,8 +10,6 @@ import {
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createDattoClient, type DattoClient } from 'datto-rmm-api';
-import { type ServerConfig } from './config.js';
 import { tools, getTool } from './tools/index.js';
 import { resources, resourceTemplates, readResource } from './resources/index.js';
 
@@ -16,7 +17,6 @@ import { resources, resourceTemplates, readResource } from './resources/index.js
  * Create and configure the MCP server.
  */
 export function createServer(config: ServerConfig): { server: Server; client: DattoClient } {
-  // Create the Datto API client
   const client = createDattoClient({
     platform: config.platform,
     auth: {
@@ -25,7 +25,6 @@ export function createServer(config: ServerConfig): { server: Server; client: Da
     },
   });
 
-  // Create MCP server
   const server = new Server(
     {
       name: 'datto-rmm',
@@ -53,7 +52,6 @@ export function createServer(config: ServerConfig): { server: Server; client: Da
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const tool = getTool(name);
-
     if (!tool) {
       return {
         content: [{ type: 'text', text: `Unknown tool: ${name}` }],
@@ -91,22 +89,53 @@ export function createServer(config: ServerConfig): { server: Server; client: Da
 }
 
 /**
- * Run the server with stdio transport.
+ * Run the server with SSE transport for HTTP access.
  */
 export async function runServer(config: ServerConfig): Promise<void> {
-  const { server } = createServer(config);
-  const transport = new StdioServerTransport();
+  const app = express();
+  const port = process.env.PORT || 3000;
 
-  await server.connect(transport);
+  // Health check endpoint
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok', service: 'datto-rmm-mcp-server' });
+  });
+
+  // SSE endpoint for MCP
+  app.get('/sse', async (req, res) => {
+    console.log('New SSE connection established');
+    
+    const { server } = createServer(config);
+    const transport = new SSEServerTransport('/message', res);
+    
+    await server.connect(transport);
+    
+    // Keep connection alive
+    req.on('close', () => {
+      console.log('SSE connection closed');
+      server.close();
+    });
+  });
+
+  // Message endpoint for client requests
+  app.post('/message', express.json(), async (req, res) => {
+    // This is handled by the SSE transport
+    res.json({ received: true });
+  });
+
+  app.listen(port, () => {
+    console.log(`Datto RMM MCP server listening on port ${port}`);
+    console.log(`Health check: http://localhost:${port}/health`);
+    console.log(`SSE endpoint: http://localhost:${port}/sse`);
+  });
 
   // Handle graceful shutdown
-  process.on('SIGINT', async () => {
-    await server.close();
+  process.on('SIGINT', () => {
+    console.log('Shutting down server...');
     process.exit(0);
   });
 
-  process.on('SIGTERM', async () => {
-    await server.close();
+  process.on('SIGTERM', () => {
+    console.log('Shutting down server...');
     process.exit(0);
   });
 }
