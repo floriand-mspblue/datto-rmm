@@ -19,21 +19,35 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '24.x'
 
-      - name: npm install, build, and test
+      - name: Install pnpm
+        run: npm install -g pnpm@9.14.2
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Sync OpenAPI spec
+        run: pnpm sync:openapi
+
+      - name: Generate API clients
+        run: pnpm generate:api
+
+      - name: Build project
+        run: pnpm build
+
+      - name: Prepare deployment package
         run: |
-          npm install
-          npm run build --if-present
-          npm run test --if-present
+          pnpm --filter=datto-rmm-mcp-server deploy --prod apps/mcp-server/deploy
+
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: apps/mcp-server/deploy
 
   deploy:
     runs-on: ubuntu-latest
@@ -62,4 +76,5 @@ jobs:
           app-name: 'datto-rmm-mcp-server'
           slot-name: 'Production'
           package: .
+
           
