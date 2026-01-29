@@ -93,7 +93,7 @@ export function createServer(config: ServerConfig): { server: Server; client: Da
  */
 export async function runServer(config: ServerConfig): Promise<void> {
   const app = express();
-  const port = process.env.PORT || 3000;
+  const port = parseInt(process.env['PORT'] || '8080', 10);
 
   // Health check endpoint
   app.get('/health', (req, res) => {
