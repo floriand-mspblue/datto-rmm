@@ -27,7 +27,7 @@ jobs:
         run: npm install -g pnpm@9.14.2
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Sync OpenAPI spec
         run: pnpm sync:openapi
@@ -78,3 +78,4 @@ jobs:
           package: .
 
           
+
