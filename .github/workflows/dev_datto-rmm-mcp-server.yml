@@ -41,7 +41,9 @@ jobs:
       - name: Prepare deployment package
         run: |
           pnpm --filter=datto-rmm-mcp-server deploy --prod apps/mcp-server/deploy
-
+          # Create .deployment file to disable Azure optimization
+          echo "[config]" > apps/mcp-server/deploy/.deployment
+          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" >> apps/mcp-server/deploy/.deployment
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -78,4 +80,5 @@ jobs:
           package: .
 
           
+
 
