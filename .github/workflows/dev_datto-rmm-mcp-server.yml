@@ -36,7 +36,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'pnpm'
 
     - name: 📦 Install all dependencies
       run: pnpm install --no-frozen-lockfile
@@ -128,3 +127,4 @@ jobs:
         echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
