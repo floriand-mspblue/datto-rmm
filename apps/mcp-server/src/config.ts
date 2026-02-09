@@ -17,7 +17,7 @@ export interface ServerConfig {
  */
 function parsePlatform(value: string | undefined): Platform {
   if (!value) {
-    return Platform.MERLOT; // Default
+    return Platform.SYRAH; // Default
   }
 
   const normalized = value.toLowerCase();
