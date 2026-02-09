@@ -1,65 +1,199 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
-name: Build and deploy Node.js app to Azure Web App - datto-rmm-mcp-server
+name: Deploy MCP Server to Azure
 
 on:
   push:
-    branches:
+    branches: 
       - dev
+    paths:
+      - 'apps/mcp-server/**'
+      - 'packages/api/**'
+      - '.github/workflows/dev_datto-rmm-mcp-server.yml'
   workflow_dispatch:
 
+env:
+  AZURE_WEBAPP_NAME: datto-rmm-mcp-server
+  NODE_VERSION: '20.x'
+
 jobs:
-  build:
+  build-and-deploy:
+    name: Build and Deploy to Azure
     runs-on: ubuntu-latest
     permissions:
-      contents: read #This is required for actions/checkout
-
+      contents: read
+      id-token: write
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Node.js version
-        uses: actions/setup-node@v3
-        with:
-          node-version: '24.x'
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
 
-      - name: npm install, build, and test
-        run: |
-          npm install
-          npm run build --if-present
-          npm run test --if-present
+    - name: 📦 Setup pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
 
-      - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v4
-        with:
-          name: node-app
-          path: .
+    - name: 📚 Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+    - name: 🗄️ Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
 
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: node-app
-      
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_3F75ED10C26D4E8B8B8A1EE6D7E4AF47 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6F1C414C69A448E38BA714C562263045 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4AE0E04EF93F47C1B9E8CA2FFC61DAF7 }}
+    - name: 📦 Install dependencies
+      run: pnpm install --frozen-lockfile
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'datto-rmm-mcp-server'
-          slot-name: 'Production'
-          package: .
-          
+    - name: 🔨 Build TypeScript API package
+      run: pnpm --filter datto-rmm-api build
+
+    - name: 🔨 Build MCP Server
+      run: pnpm --filter datto-rmm-mcp-server build
+
+    - name: 🧪 Type check
+      run: pnpm --filter datto-rmm-mcp-server typecheck
+
+    - name: 📦 Prepare deployment package
+      run: |
+        mkdir -p deploy
+        
+        # Copy MCP server build output
+        cp -r apps/mcp-server/dist deploy/dist
+        cp apps/mcp-server/package.json deploy/
+        
+        # Copy API package (workspace dependency)
+        mkdir -p deploy/node_modules/datto-rmm-api
+        cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
+        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
+        
+        # Copy necessary dependencies
+        cp pnpm-lock.yaml deploy/ || true
+        
+        # Create package-lock.json for Azure
+        cd deploy && npm install --package-lock-only || true
+
+    - name: 📋 Display deployment contents
+      run: |
+        echo "Deployment package contents:"
+        ls -la deploy/
+        echo ""
+        echo "Dist directory:"
+        ls -la deploy/dist/ || echo "No dist directory"
+
+    - name: 🔐 Login to Azure
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_3F75ED10C26D4E8B8B8A1EE6D7E4AF47 }}
+        tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6F1C414C69A448E38BA714C562263045 }}
+        subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4AE0E04EF93F47C1B9E8CA2FFC61DAF7 }}
+
+    - name: 🚀 Deploy to Azure Web App
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        slot-name: 'Production'
+        package: ./deploy
+
+    - name: ✅ Verify deployment
+      run: |
+        echo "Waiting 30 seconds for deployment to complete..."
+        sleep 30
+        
+        echo "Testing health endpoint..."
+        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health || echo "Health check failed"
+        
+        echo ""
+        echo "Testing root endpoint..."
+        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/ || echo "Root endpoint failed"
+
+    - name: 📊 Deployment Summary
+      if: always()
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**App Name:** ${{ env.AZURE_WEBAPP_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Node Version:** ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Endpoints" >> $GITHUB_STEP_SUMMARY
+        echo "- **App URL:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health Check:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **MCP Endpoint:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+```
+
+5. **Commit the changes:**
+   - Commit message: `Update workflow for monorepo build process`
+   - Select: "Commit directly to the dev branch"
+   - Click **"Commit changes"**
+
+---
+
+## 📝 **Step 2: Add the Source Code Files**
+
+Now let's add the three source files. You can do these one at a time:
+
+### **2a. Add http-server.ts**
+
+1. Go to: `https://github.com/floriand-mspblue/datto-rmm/tree/dev/apps/mcp-server/src`
+2. Click **"Add file"** → **"Create new file"**
+3. Name: `http-server.ts`
+4. Open the `http-server.ts` file from your downloads and **copy all the content**
+5. **Paste it** into the GitHub editor
+6. Commit message: `Add HTTP server with SSE transport`
+7. Click **"Commit changes"**
+
+### **2b. Update index.ts**
+
+1. Go to: `https://github.com/floriand-mspblue/datto-rmm/blob/dev/apps/mcp-server/src/index.ts`
+2. Click **pencil icon** (✏️)
+3. **Select all and delete**
+4. Open the `index.ts` file from your downloads and **copy all the content**
+5. **Paste it**
+6. Commit message: `Update index.ts for dual-mode support`
+7. Click **"Commit changes"**
+
+### **2c. Update package.json**
+
+1. Go to: `https://github.com/floriand-mspblue/datto-rmm/blob/dev/apps/mcp-server/package.json`
+2. Click **pencil icon** (✏️)
+3. **Select all and delete**
+4. Open the `package.json` file from your downloads and **copy all the content**
+5. **Paste it**
+6. Commit message: `Add Express dependency`
+7. Click **"Commit changes"**
+
+---
+
+## 🎬 **Step 3: Watch It Deploy!**
+
+Once you commit the last file, GitHub Actions will automatically trigger:
+
+1. **Go to Actions:**
+```
+   https://github.com/floriand-mspblue/datto-rmm/actions
+```
+
+2. **You should see the workflow running!**
+
+3. **Click on it** to watch the build progress
+
+4. **Wait ~5 minutes** for it to complete
+
+---
+
+## ✅ **Step 4: Test It**
+
+Once you see the green checkmark ✅:
+
+**Open in browser:**
+```
+https://datto-rmm-mcp-server-cdcge8hph9ebh4b3.australiaeast-01.azurewebsites.net/health
