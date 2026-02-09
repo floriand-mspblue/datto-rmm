@@ -36,96 +36,37 @@ jobs:
       with:
         version: 8
 
-    - name: 📦 Install dependencies
-      run: pnpm install --no-frozen-lockfile
-
-    - name: 🔨 Build TypeScript API package
-      run: pnpm --filter datto-rmm-api build
-
-    - name: 🔨 Build MCP Server
-      run: pnpm --filter datto-rmm-mcp-server build
-
-    - name: 📦 Create clean deployment package
+    - name: 📦 Install and build everything
       run: |
-        # Create deployment structure
-        mkdir -p deploy
-        
-        # Copy built MCP server
-        cp -r apps/mcp-server/dist deploy/
-        
-        # Create node_modules structure with the API package
-        mkdir -p deploy/node_modules/datto-rmm-api
-        
-        # Copy built API package into node_modules
-        if [ -d "packages/api/dist" ]; then
-          cp -r packages/api/dist/* deploy/node_modules/datto-rmm-api/
-          cp packages/api/package.json deploy/node_modules/datto-rmm-api/
-        else
-          echo "ERROR: API dist not found"
-          exit 1
-        fi
-        
-        # Create package.json for deployment
-        cat > deploy/package.json << 'EOF'
-        {
-          "name": "datto-rmm-mcp-server",
-          "version": "0.1.0",
-          "type": "module",
-          "main": "dist/index.js",
-          "engines": {
-            "node": ">=22.0.0"
-          },
-          "dependencies": {
-            "@modelcontextprotocol/sdk": "^1.0.0",
-            "express": "^4.19.2"
-          }
-        }
-        EOF
-        
-        # Install production dependencies
-        cd deploy
-        npm install --production
-        cd ..
-        
-        # Create web.config for Azure
-        cat > deploy/web.config << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration>
-          <system.webServer>
-            <handlers>
-              <add name="iisnode" path="dist/index.js" verb="*" modules="iisnode"/>
-            </handlers>
-            <rewrite>
-              <rules>
-                <rule name="DynamicContent">
-                  <conditions>
-                    <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="True"/>
-                  </conditions>
-                  <action type="Rewrite" url="dist/index.js"/>
-                </rule>
-              </rules>
-            </rewrite>
-            <iisnode nodeProcessCommandLine="node --max-old-space-size=2048" watchedFiles="*.js;iisnode.yml"/>
-          </system.webServer>
-        </configuration>
-        EOF
+        pnpm install --no-frozen-lockfile
+        pnpm --filter datto-rmm-api build
+        pnpm --filter datto-rmm-mcp-server build
 
-    - name: 📋 Verify deployment structure
+    - name: 📦 Create deployment using pnpm deploy
       run: |
-        echo "=== Deploy directory structure ==="
+        # Use pnpm deploy to create a clean deployment
+        mkdir -p deploy-temp
+        cd apps/mcp-server
+        pnpm deploy --prod ../../deploy-temp
+        cd ../..
+        
+        # Now deploy-temp has the MCP server with resolved dependencies
+        # Move it to deploy folder
+        mv deploy-temp deploy
+
+    - name: 📋 Check deployment structure
+      run: |
+        echo "=== Deploy directory ==="
         ls -la deploy/
         echo ""
-        echo "=== Dist directory ==="
-        ls -la deploy/dist/
+        echo "=== Deploy dist ==="
+        ls -la deploy/dist/ 2>/dev/null || echo "No dist folder"
         echo ""
-        echo "=== Node modules ==="
-        ls -la deploy/node_modules/ | head -20
+        echo "=== Deploy node_modules (first 20) ==="
+        ls -la deploy/node_modules/ 2>/dev/null | head -20 || echo "No node_modules"
         echo ""
-        echo "=== API package ==="
-        ls -la deploy/node_modules/datto-rmm-api/
-        echo ""
-        echo "=== Package.json ==="
-        cat deploy/package.json
+        echo "=== Check for datto-rmm-api ==="
+        ls -la deploy/node_modules/datto-rmm-api/ 2>/dev/null || echo "datto-rmm-api not found in node_modules"
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -134,78 +75,39 @@ jobs:
         tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6F1C414C69A448E38BA714C562263045 }}
         subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4AE0E04EF93F47C1B9E8CA2FFC61DAF7 }}
 
-    - name: ⚙️ Configure Azure App Settings
+    - name: ⚙️ Configure Azure
       run: |
         az webapp config appsettings set \
           --name datto-rmm-mcp-server \
           --resource-group msp-ai-dev \
-          --settings \
-            MCP_TRANSPORT_MODE=http \
-            NODE_ENV=production
-
-    - name: ⚙️ Set Startup Command
-      run: |
+          --settings MCP_TRANSPORT_MODE=http NODE_ENV=production
+        
         az webapp config set \
           --name datto-rmm-mcp-server \
           --resource-group msp-ai-dev \
           --startup-file "node dist/index.js"
 
-    - name: 🚀 Deploy to Azure Web App
+    - name: 🚀 Deploy to Azure
       uses: azure/webapps-deploy@v3
       with:
         app-name: datto-rmm-mcp-server
         slot-name: Production
         package: ./deploy
 
-    - name: 🔄 Restart App
+    - name: 🔄 Restart and verify
       run: |
-        az webapp restart \
-          --name datto-rmm-mcp-server \
-          --resource-group msp-ai-dev
-
-    - name: ✅ Verify deployment
-      run: |
-        echo "Waiting 60 seconds for app to start..."
+        az webapp restart --name datto-rmm-mcp-server --resource-group msp-ai-dev
+        
+        echo "Waiting 60 seconds..."
         sleep 60
         
-        echo ""
-        echo "Testing health endpoint..."
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://datto-rmm-mcp-server.azurewebsites.net/health)
-        echo "Health endpoint returned: HTTP $HTTP_CODE"
+        echo "Health check: HTTP $HTTP_CODE"
         
         if [ "$HTTP_CODE" = "200" ]; then
-          echo "✅ Deployment successful!"
-          echo ""
-          echo "Response:"
-          curl -s https://datto-rmm-mcp-server.azurewebsites.net/health | jq '.' || curl -s https://datto-rmm-mcp-server.azurewebsites.net/health
+          echo "✅ SUCCESS!"
+          curl -s https://datto-rmm-mcp-server.azurewebsites.net/health
         else
-          echo "⚠️ Health check returned HTTP $HTTP_CODE"
-          echo "App may still be starting. Check Azure Portal logs."
+          echo "⚠️ Not ready yet - check logs"
         fi
-
-    - name: 📊 Deployment Summary
-      if: always()
-      run: |
-        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Status:** Deployment completed" >> $GITHUB_STEP_SUMMARY
-        echo "**Node Version:** 22.x" >> $GITHUB_STEP_SUMMARY
-        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Endpoints" >> $GITHUB_STEP_SUMMARY
-        echo "- **Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
-        echo "- **Service Info:** https://datto-rmm-mcp-server.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
-        echo "- **MCP Endpoint:** https://datto-rmm-mcp-server.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📝 Directory Structure" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "wwwroot/" >> $GITHUB_STEP_SUMMARY
-        echo "├── dist/              # Built MCP server" >> $GITHUB_STEP_SUMMARY
-        echo "│   └── index.js       # Entry point" >> $GITHUB_STEP_SUMMARY
-        echo "├── node_modules/      # Dependencies" >> $GITHUB_STEP_SUMMARY
-        echo "│   └── datto-rmm-api/ # Built API package" >> $GITHUB_STEP_SUMMARY
-        echo "├── package.json       # Deployment manifest" >> $GITHUB_STEP_SUMMARY
-        echo "└── web.config         # Azure configuration" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         
