@@ -12,7 +12,7 @@ on:
 
 env:
   AZURE_WEBAPP_NAME: datto-rmm-mcp-server
-  NODE_VERSION: '20.x'
+  NODE_VERSION: '22.x'
 
 jobs:
   build-and-deploy:
@@ -158,3 +158,4 @@ jobs:
         echo "- [Service Info](https://datto-rmm-mcp-server.azurewebsites.net/)" >> $GITHUB_STEP_SUMMARY
         echo "- [MCP Endpoint](https://datto-rmm-mcp-server.azurewebsites.net/mcp)" >> $GITHUB_STEP_SUMMARY
         
+
