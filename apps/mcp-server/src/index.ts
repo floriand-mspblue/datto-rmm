@@ -9,7 +9,7 @@ async function main() {
     // Determine transport mode from environment variable
     // - 'stdio': Local mode for Claude Desktop (default)
     // - 'http' or 'sse': Azure Web App mode
-    const mode = (process.env.MCP_TRANSPORT_MODE || 'stdio').toLowerCase();
+    const mode = (process.env['MCP_TRANSPORT_MODE'] || 'stdio').toLowerCase();
 
     console.log(`Starting Datto RMM MCP Server in ${mode.toUpperCase()} mode...`);
 
