@@ -49,16 +49,11 @@ jobs:
     - name: 📦 Bundle for deployment
       run: |
         mkdir -p deploy/dist
-        mkdir -p deploy/node_modules/datto-rmm-api
 
-        # Copy MCP server built output
+        # 1. Copy MCP server built output
         cp -r apps/mcp-server/dist/* deploy/dist/
 
-        # Copy datto-rmm-api as a proper package (dist + package.json)
-        cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
-        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
-
-        # Create a clean package.json with real dependency versions (no workspace:*)
+        # 2. Create a clean package.json without workspace:* references
         cat > deploy/package.json << 'PACKAGEEOF'
         {
           "name": "datto-rmm-mcp-server",
@@ -78,10 +73,15 @@ jobs:
         }
         PACKAGEEOF
 
-        # Install remaining npm dependencies (datto-rmm-api is already copied manually)
+        # 3. Install npm dependencies FIRST
         cd deploy
         npm install --omit=dev --no-package-lock
         cd ..
+
+        # 4. Copy datto-rmm-api AFTER npm install so it doesn't get wiped
+        mkdir -p deploy/node_modules/datto-rmm-api
+        cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
+        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
 
     - name: 📋 Verify structure
       run: |
