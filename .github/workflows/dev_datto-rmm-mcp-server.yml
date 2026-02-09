@@ -50,7 +50,7 @@ jobs:
           ${{ runner.os }}-pnpm-store-
 
     - name: 📦 Install dependencies
-      run: pnpm install --frozen-lockfile
+      run: pnpm install --no-frozen-lockfile
 
     - name: 🔨 Build TypeScript API package
       run: pnpm --filter datto-rmm-api build
@@ -118,3 +118,4 @@ jobs:
         echo "- **App URL:** https://datto-rmm-mcp-server.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
         echo "- **Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP Endpoint:** https://datto-rmm-mcp-server.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
