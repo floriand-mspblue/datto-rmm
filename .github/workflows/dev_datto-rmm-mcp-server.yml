@@ -13,6 +13,7 @@ on:
 env:
   AZURE_WEBAPP_NAME: datto-rmm-mcp-server
   NODE_VERSION: '22.x'
+  PNPM_VERSION: '9.14.2'
 
 jobs:
   build-and-deploy:
@@ -26,69 +27,44 @@ jobs:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
 
+    - name: 📦 Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: ${{ env.PNPM_VERSION }}
+
     - name: 🔧 Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-
-    - name: 📦 Setup pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
+        cache: 'pnpm'
 
     - name: 📦 Install all dependencies
       run: pnpm install --no-frozen-lockfile
 
-    - name: 🔨 Build packages
+    - name: 🔨 Generate API types and build
       run: |
-        pnpm --filter datto-rmm-api build
-        pnpm --filter datto-rmm-mcp-server build
+        pnpm generate:api
+        pnpm build
 
-    - name: 📦 Bundle for deployment
+    - name: 📦 Create standalone deployment package
       run: |
-        # Create deployment directory
-        mkdir -p deploy
-        
-        # Copy built MCP server
-        cp -r apps/mcp-server/dist deploy/
-        
-        # Copy MCP server package.json and modify it
-        cp apps/mcp-server/package.json deploy/package.json.original
-        
-        # Create new package.json without workspace dependency
-        cat > deploy/package.json << 'EOF'
-        {
-          "name": "datto-rmm-mcp-server",
-          "version": "0.1.0",
-          "type": "module",
-          "main": "dist/index.js",
-          "engines": {
-            "node": ">=22.0.0"
-          },
-          "dependencies": {
-            "@modelcontextprotocol/sdk": "^1.0.0",
-            "express": "^4.19.2"
-          }
-        }
-        EOF
-        
-        # Copy the built API package into node_modules
-        mkdir -p deploy/node_modules/datto-rmm-api
-        cp -r packages/api/dist/* deploy/node_modules/datto-rmm-api/
-        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
-        
-        # Install production dependencies (Express and MCP SDK)
-        cd deploy
-        npm install --production --no-package-lock
-        cd ..
+        # pnpm deploy resolves workspace:* dependencies into real copies
+        # in node_modules, creating a fully self-contained directory
+        pnpm --filter datto-rmm-mcp-server deploy ./deploy
 
     - name: 📋 Verify structure
       run: |
         echo "=== Deploy structure ==="
-        find deploy -maxdepth 2 -type f -o -type d | sort
+        ls -la deploy/
         echo ""
-        echo "=== Check datto-rmm-api ==="
+        echo "=== dist/ ==="
+        ls -la deploy/dist/
+        echo ""
+        echo "=== Check datto-rmm-api in node_modules ==="
         ls -la deploy/node_modules/datto-rmm-api/ || echo "NOT FOUND"
+        echo ""
+        echo "=== Check datto-rmm-api dist ==="
+        ls -la deploy/node_modules/datto-rmm-api/dist/ || echo "NOT FOUND"
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -102,7 +78,7 @@ jobs:
         az webapp config appsettings set \
           --name ${{ env.AZURE_WEBAPP_NAME }} \
           --resource-group msp-ai-dev \
-          --settings MCP_TRANSPORT_MODE=http NODE_ENV=production
+          --settings MCP_TRANSPORT_MODE=http NODE_ENV=production SCM_DO_BUILD_DURING_DEPLOYMENT=false
         
         az webapp config set \
           --name ${{ env.AZURE_WEBAPP_NAME }} \
