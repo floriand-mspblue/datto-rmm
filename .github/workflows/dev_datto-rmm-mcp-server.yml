@@ -64,20 +64,12 @@ jobs:
     - name: 📦 Prepare deployment package
       run: |
         mkdir -p deploy
-        
-        # Copy MCP server build output
         cp -r apps/mcp-server/dist deploy/dist
         cp apps/mcp-server/package.json deploy/
-        
-        # Copy API package (workspace dependency)
         mkdir -p deploy/node_modules/datto-rmm-api
         cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
         cp packages/api/package.json deploy/node_modules/datto-rmm-api/
-        
-        # Copy necessary dependencies
         cp pnpm-lock.yaml deploy/ || true
-        
-        # Create package-lock.json for Azure
         cd deploy && npm install --package-lock-only || true
 
     - name: 📋 Display deployment contents
@@ -98,102 +90,31 @@ jobs:
     - name: 🚀 Deploy to Azure Web App
       uses: azure/webapps-deploy@v3
       with:
-        app-name: ${{ env.AZURE_WEBAPP_NAME }}
-        slot-name: 'Production'
+        app-name: datto-rmm-mcp-server
+        slot-name: Production
         package: ./deploy
 
     - name: ✅ Verify deployment
       run: |
         echo "Waiting 30 seconds for deployment to complete..."
         sleep 30
-        
         echo "Testing health endpoint..."
-        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health || echo "Health check failed"
-        
+        curl -f https://datto-rmm-mcp-server.azurewebsites.net/health || echo "Health check failed"
         echo ""
         echo "Testing root endpoint..."
-        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/ || echo "Root endpoint failed"
+        curl -f https://datto-rmm-mcp-server.azurewebsites.net/ || echo "Root endpoint failed"
 
     - name: 📊 Deployment Summary
       if: always()
       run: |
         echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**App Name:** ${{ env.AZURE_WEBAPP_NAME }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Node Version:** ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "**App Name:** datto-rmm-mcp-server" >> $GITHUB_STEP_SUMMARY
+        echo "**Node Version:** 20.x" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Endpoints" >> $GITHUB_STEP_SUMMARY
-        echo "- **App URL:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
-        echo "- **Health Check:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
-        echo "- **MCP Endpoint:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
-```
-
-5. **Commit the changes:**
-   - Commit message: `Update workflow for monorepo build process`
-   - Select: "Commit directly to the dev branch"
-   - Click **"Commit changes"**
-
----
-
-## 📝 **Step 2: Add the Source Code Files**
-
-Now let's add the three source files. You can do these one at a time:
-
-### **2a. Add http-server.ts**
-
-1. Go to: `https://github.com/floriand-mspblue/datto-rmm/tree/dev/apps/mcp-server/src`
-2. Click **"Add file"** → **"Create new file"**
-3. Name: `http-server.ts`
-4. Open the `http-server.ts` file from your downloads and **copy all the content**
-5. **Paste it** into the GitHub editor
-6. Commit message: `Add HTTP server with SSE transport`
-7. Click **"Commit changes"**
-
-### **2b. Update index.ts**
-
-1. Go to: `https://github.com/floriand-mspblue/datto-rmm/blob/dev/apps/mcp-server/src/index.ts`
-2. Click **pencil icon** (✏️)
-3. **Select all and delete**
-4. Open the `index.ts` file from your downloads and **copy all the content**
-5. **Paste it**
-6. Commit message: `Update index.ts for dual-mode support`
-7. Click **"Commit changes"**
-
-### **2c. Update package.json**
-
-1. Go to: `https://github.com/floriand-mspblue/datto-rmm/blob/dev/apps/mcp-server/package.json`
-2. Click **pencil icon** (✏️)
-3. **Select all and delete**
-4. Open the `package.json` file from your downloads and **copy all the content**
-5. **Paste it**
-6. Commit message: `Add Express dependency`
-7. Click **"Commit changes"**
-
----
-
-## 🎬 **Step 3: Watch It Deploy!**
-
-Once you commit the last file, GitHub Actions will automatically trigger:
-
-1. **Go to Actions:**
-```
-   https://github.com/floriand-mspblue/datto-rmm/actions
-```
-
-2. **You should see the workflow running!**
-
-3. **Click on it** to watch the build progress
-
-4. **Wait ~5 minutes** for it to complete
-
----
-
-## ✅ **Step 4: Test It**
-
-Once you see the green checkmark ✅:
-
-**Open in browser:**
-```
-https://datto-rmm-mcp-server-cdcge8hph9ebh4b3.australiaeast-01.azurewebsites.net/health
+        echo "- **App URL:** https://datto-rmm-mcp-server.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **MCP Endpoint:** https://datto-rmm-mcp-server.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
