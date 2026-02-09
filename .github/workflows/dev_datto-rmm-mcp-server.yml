@@ -36,37 +36,59 @@ jobs:
       with:
         version: 8
 
-    - name: 📦 Install and build everything
+    - name: 📦 Install all dependencies
+      run: pnpm install --no-frozen-lockfile
+
+    - name: 🔨 Build packages
       run: |
-        pnpm install --no-frozen-lockfile
         pnpm --filter datto-rmm-api build
         pnpm --filter datto-rmm-mcp-server build
 
-    - name: 📦 Create deployment using pnpm deploy
+    - name: 📦 Bundle for deployment
       run: |
-        # Use pnpm deploy to create a clean deployment
-        mkdir -p deploy-temp
-        cd apps/mcp-server
-        pnpm deploy --prod ../../deploy-temp
-        cd ../..
+        # Create deployment directory
+        mkdir -p deploy
         
-        # Now deploy-temp has the MCP server with resolved dependencies
-        # Move it to deploy folder
-        mv deploy-temp deploy
+        # Copy built MCP server
+        cp -r apps/mcp-server/dist deploy/
+        
+        # Copy MCP server package.json and modify it
+        cp apps/mcp-server/package.json deploy/package.json.original
+        
+        # Create new package.json without workspace dependency
+        cat > deploy/package.json << 'EOF'
+        {
+          "name": "datto-rmm-mcp-server",
+          "version": "0.1.0",
+          "type": "module",
+          "main": "dist/index.js",
+          "engines": {
+            "node": ">=22.0.0"
+          },
+          "dependencies": {
+            "@modelcontextprotocol/sdk": "^1.0.0",
+            "express": "^4.19.2"
+          }
+        }
+        EOF
+        
+        # Copy the built API package into node_modules
+        mkdir -p deploy/node_modules/datto-rmm-api
+        cp -r packages/api/dist/* deploy/node_modules/datto-rmm-api/
+        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
+        
+        # Install production dependencies (Express and MCP SDK)
+        cd deploy
+        npm install --production --no-package-lock
+        cd ..
 
-    - name: 📋 Check deployment structure
+    - name: 📋 Verify structure
       run: |
-        echo "=== Deploy directory ==="
-        ls -la deploy/
+        echo "=== Deploy structure ==="
+        find deploy -maxdepth 2 -type f -o -type d | sort
         echo ""
-        echo "=== Deploy dist ==="
-        ls -la deploy/dist/ 2>/dev/null || echo "No dist folder"
-        echo ""
-        echo "=== Deploy node_modules (first 20) ==="
-        ls -la deploy/node_modules/ 2>/dev/null | head -20 || echo "No node_modules"
-        echo ""
-        echo "=== Check for datto-rmm-api ==="
-        ls -la deploy/node_modules/datto-rmm-api/ 2>/dev/null || echo "datto-rmm-api not found in node_modules"
+        echo "=== Check datto-rmm-api ==="
+        ls -la deploy/node_modules/datto-rmm-api/ || echo "NOT FOUND"
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -75,39 +97,58 @@ jobs:
         tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6F1C414C69A448E38BA714C562263045 }}
         subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4AE0E04EF93F47C1B9E8CA2FFC61DAF7 }}
 
-    - name: ⚙️ Configure Azure
+    - name: ⚙️ Configure Azure settings
       run: |
         az webapp config appsettings set \
-          --name datto-rmm-mcp-server \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
           --resource-group msp-ai-dev \
           --settings MCP_TRANSPORT_MODE=http NODE_ENV=production
         
         az webapp config set \
-          --name datto-rmm-mcp-server \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
           --resource-group msp-ai-dev \
           --startup-file "node dist/index.js"
 
     - name: 🚀 Deploy to Azure
       uses: azure/webapps-deploy@v3
       with:
-        app-name: datto-rmm-mcp-server
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
         slot-name: Production
         package: ./deploy
 
-    - name: 🔄 Restart and verify
+    - name: 🔄 Restart app
       run: |
-        az webapp restart --name datto-rmm-mcp-server --resource-group msp-ai-dev
-        
-        echo "Waiting 60 seconds..."
+        az webapp restart \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group msp-ai-dev
+
+    - name: ✅ Verify deployment
+      run: |
+        echo "Waiting 60 seconds for app to start..."
         sleep 60
         
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://datto-rmm-mcp-server.azurewebsites.net/health)
-        echo "Health check: HTTP $HTTP_CODE"
+        HEALTH_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
+        HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" $HEALTH_URL)
+        
+        echo "Health check returned: HTTP $HTTP_CODE"
         
         if [ "$HTTP_CODE" = "200" ]; then
-          echo "✅ SUCCESS!"
-          curl -s https://datto-rmm-mcp-server.azurewebsites.net/health
+          echo "✅ SUCCESS! App is healthy"
+          cat response.json | jq '.' 2>/dev/null || cat response.json
         else
-          echo "⚠️ Not ready yet - check logs"
+          echo "⚠️ App returned HTTP $HTTP_CODE"
+          echo "Response:"
+          cat response.json 2>/dev/null || echo "(empty response)"
+          echo ""
+          echo "Check Azure Portal Log Stream for errors"
         fi
-        
+
+    - name: 📊 Summary
+      if: always()
+      run: |
+        echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Your MCP Server" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
+        echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
