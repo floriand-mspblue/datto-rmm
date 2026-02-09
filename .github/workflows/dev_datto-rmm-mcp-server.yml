@@ -63,14 +63,34 @@ jobs:
 
     - name: 📦 Prepare deployment package
       run: |
-        mkdir -p deploy
-        cp -r apps/mcp-server/dist deploy/dist
-        cp apps/mcp-server/package.json deploy/
+        mkdir -p deploy/dist
+        mkdir -p deploy/node_modules
+        
+        # Copy MCP server build output
+        cp -r apps/mcp-server/dist/* deploy/dist/
+        
+        # Copy MCP server package.json but we need to fix the workspace dependency
+        cp apps/mcp-server/package.json deploy/package.json.tmp
+        
+        # Replace workspace:* with actual version from the API package
+        API_VERSION=$(node -p "require('./packages/api/package.json').version")
+        sed "s|\"datto-rmm-api\": \"workspace:\\*\"|\"datto-rmm-api\": \"file:./node_modules/datto-rmm-api\"|g" deploy/package.json.tmp > deploy/package.json
+        rm deploy/package.json.tmp
+        
+        # Copy the built API package as a local dependency
         mkdir -p deploy/node_modules/datto-rmm-api
-        cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
+        cp -r packages/api/dist/* deploy/node_modules/datto-rmm-api/
         cp packages/api/package.json deploy/node_modules/datto-rmm-api/
-        cp pnpm-lock.yaml deploy/ || true
-        cd deploy && npm install --package-lock-only || true
+        
+        # Install only production dependencies (Express, MCP SDK, etc.)
+        cd deploy
+        npm install --omit=dev
+        
+        # Create a simple startup script
+        cat > startup.js << 'EOF'
+        process.env.MCP_TRANSPORT_MODE = 'http';
+        require('./dist/index.js');
+        EOF
 
     - name: 📋 Display deployment contents
       run: |
@@ -78,7 +98,10 @@ jobs:
         ls -la deploy/
         echo ""
         echo "Dist directory:"
-        ls -la deploy/dist/ || echo "No dist directory"
+        ls -la deploy/dist/
+        echo ""
+        echo "Node modules:"
+        ls -la deploy/node_modules/ | head -20
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -93,16 +116,17 @@ jobs:
         app-name: datto-rmm-mcp-server
         slot-name: Production
         package: ./deploy
+        startup-command: node startup.js
 
     - name: ✅ Verify deployment
       run: |
-        echo "Waiting 30 seconds for deployment to complete..."
-        sleep 30
+        echo "Waiting 45 seconds for deployment to complete..."
+        sleep 45
         echo "Testing health endpoint..."
-        curl -f https://datto-rmm-mcp-server.azurewebsites.net/health || echo "Health check failed"
+        curl -f https://datto-rmm-mcp-server.azurewebsites.net/health || echo "Health check failed - app may still be starting"
         echo ""
         echo "Testing root endpoint..."
-        curl -f https://datto-rmm-mcp-server.azurewebsites.net/ || echo "Root endpoint failed"
+        curl -f https://datto-rmm-mcp-server.azurewebsites.net/ || echo "Root endpoint failed - app may still be starting"
 
     - name: 📊 Deployment Summary
       if: always()
@@ -118,4 +142,7 @@ jobs:
         echo "- **App URL:** https://datto-rmm-mcp-server.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
         echo "- **Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP Endpoint:** https://datto-rmm-mcp-server.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
-
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📝 Note" >> $GITHUB_STEP_SUMMARY
+        echo "If health check shows as failed, wait 1-2 minutes for Azure to fully start the app, then test manually." >> $GITHUB_STEP_SUMMARY
+        
