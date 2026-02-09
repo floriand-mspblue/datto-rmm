@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response, type Application } from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { createServer } from './server.js';
@@ -8,7 +8,7 @@ import { loadConfig } from './config.js';
  * Create Express HTTP server with MCP SSE endpoint.
  * This server is designed for cloud deployment (Azure Web Apps, etc.)
  */
-export function createHttpServer() {
+export function createHttpServer(): Application {
   const app = express();
   
   // Enable JSON parsing for any future POST endpoints
@@ -148,7 +148,7 @@ export function createHttpServer() {
  */
 export async function startHttpServer(): Promise<void> {
   const app = createHttpServer();
-  const port = process.env.PORT || 8080;
+  const port = process.env['PORT'] || 8080;
 
   const server = app.listen(port, () => {
     console.log('╔════════════════════════════════════════════════════════════╗');
