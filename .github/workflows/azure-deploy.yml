@@ -1,0 +1,146 @@
+name: Deploy MCP Server to Azure
+
+on:
+  push:
+    branches: 
+      - dev
+      - main
+    paths:
+      - 'apps/mcp-server/**'
+      - 'packages/api/**'
+      - '.github/workflows/azure-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - production
+
+env:
+  AZURE_WEBAPP_NAME: datto-rmm-mcp-server
+  NODE_VERSION: '20.x'
+  WORKING_DIRECTORY: '.'
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy to Azure
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 📦 Setup pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+
+    - name: 📚 Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: 🗄️ Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: 📦 Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: 🔨 Build TypeScript API package
+      run: pnpm --filter datto-rmm-api build
+
+    - name: 🔨 Build MCP Server
+      run: pnpm --filter datto-rmm-mcp-server build
+
+    - name: 🧪 Type check
+      run: pnpm --filter datto-rmm-mcp-server typecheck
+
+    - name: 📦 Prepare deployment package
+      run: |
+        mkdir -p deploy
+        
+        # Copy MCP server build output
+        cp -r apps/mcp-server/dist deploy/dist
+        cp apps/mcp-server/package.json deploy/
+        
+        # Copy API package (workspace dependency)
+        mkdir -p deploy/node_modules/datto-rmm-api
+        cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
+        cp packages/api/package.json deploy/node_modules/datto-rmm-api/
+        
+        # Copy necessary node_modules for production
+        # (Azure will run npm install, but we include critical dependencies)
+        cp pnpm-lock.yaml deploy/ || true
+        
+        # Create a minimal package-lock.json for Azure
+        cd deploy && npm install --package-lock-only || true
+
+    - name: 📋 Display deployment contents
+      run: |
+        echo "Deployment package contents:"
+        ls -la deploy/
+        echo ""
+        echo "Dist directory:"
+        ls -la deploy/dist/ || echo "No dist directory"
+        echo ""
+        echo "Node modules:"
+        ls -la deploy/node_modules/ || echo "No node_modules"
+
+    - name: 🚀 Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: ./deploy
+
+    - name: ✅ Verify deployment
+      run: |
+        echo "Waiting 30 seconds for deployment to complete..."
+        sleep 30
+        
+        echo "Testing health endpoint..."
+        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health || echo "Health check failed"
+        
+        echo ""
+        echo "Testing root endpoint..."
+        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/ || echo "Root endpoint failed"
+
+    - name: 📊 Deployment Summary
+      if: always()
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**App Name:** ${{ env.AZURE_WEBAPP_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Node Version:** ${{ env.NODE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Endpoints" >> $GITHUB_STEP_SUMMARY
+        echo "- **App URL:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health Check:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **MCP Endpoint:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
+    - name: ❌ Deployment failed
+      if: failure()
+      run: |
+        echo "::error::Deployment failed. Check the logs above for details."
+        echo "Common issues:"
+        echo "1. Missing AZURE_WEBAPP_PUBLISH_PROFILE secret"
+        echo "2. Build errors in TypeScript"
+        echo "3. Missing dependencies"
+        echo "4. Azure Web App not running or misconfigured"
