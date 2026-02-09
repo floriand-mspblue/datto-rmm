@@ -42,8 +42,9 @@ jobs:
 
     - name: 🔨 Generate API types and build
       run: |
-        pnpm generate:api
-        pnpm build
+        pnpm --filter datto-rmm-api generate
+        pnpm --filter datto-rmm-api build
+        pnpm --filter datto-rmm-mcp-server build
 
     - name: 📦 Create standalone deployment package
       run: |
@@ -134,6 +135,7 @@ jobs:
         echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
 
 
 
