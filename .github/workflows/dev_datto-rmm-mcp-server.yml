@@ -63,45 +63,66 @@ jobs:
 
     - name: 📦 Prepare deployment package
       run: |
+        # Create deploy directory structure
         mkdir -p deploy/dist
-        mkdir -p deploy/node_modules
+        mkdir -p deploy/node_modules/datto-rmm-api
         
         # Copy MCP server build output
         cp -r apps/mcp-server/dist/* deploy/dist/
         
-        # Copy MCP server package.json but we need to fix the workspace dependency
-        cp apps/mcp-server/package.json deploy/package.json.tmp
-        
-        # Replace workspace:* with actual version from the API package
-        API_VERSION=$(node -p "require('./packages/api/package.json').version")
-        sed "s|\"datto-rmm-api\": \"workspace:\\*\"|\"datto-rmm-api\": \"file:./node_modules/datto-rmm-api\"|g" deploy/package.json.tmp > deploy/package.json
-        rm deploy/package.json.tmp
-        
-        # Copy the built API package as a local dependency
-        mkdir -p deploy/node_modules/datto-rmm-api
+        # Copy the built API package into node_modules
         cp -r packages/api/dist/* deploy/node_modules/datto-rmm-api/
         cp packages/api/package.json deploy/node_modules/datto-rmm-api/
         
-        # Install only production dependencies (Express, MCP SDK, etc.)
+        # Create a modified package.json without workspace reference
         cd deploy
+        cat > package.json << 'PKGJSON'
+        {
+          "name": "datto-rmm-mcp-server",
+          "version": "0.1.0",
+          "description": "MCP server for Datto RMM - enables AI assistants to interact with Datto RMM",
+          "type": "module",
+          "main": "./dist/index.js",
+          "scripts": {
+            "start": "node dist/index.js"
+          },
+          "dependencies": {
+            "@modelcontextprotocol/sdk": "^1.0.0",
+            "express": "^4.19.2"
+          },
+          "engines": {
+            "node": ">=20.0.0"
+          }
+        }
+        PKGJSON
+        
+        # Install production dependencies
         npm install --omit=dev
         
-        # Create a simple startup script
-        cat > startup.js << 'EOF'
+        # Create startup script that sets environment variable
+        cat > startup.js << 'STARTUP'
         process.env.MCP_TRANSPORT_MODE = 'http';
-        require('./dist/index.js');
-        EOF
+        import('./dist/index.js');
+        STARTUP
+        
+        cd ..
 
     - name: 📋 Display deployment contents
       run: |
-        echo "Deployment package contents:"
+        echo "=== Deployment package contents ==="
         ls -la deploy/
         echo ""
-        echo "Dist directory:"
+        echo "=== Dist directory ==="
         ls -la deploy/dist/
         echo ""
-        echo "Node modules:"
+        echo "=== Node modules (top level) ==="
         ls -la deploy/node_modules/ | head -20
+        echo ""
+        echo "=== datto-rmm-api package ==="
+        ls -la deploy/node_modules/datto-rmm-api/
+        echo ""
+        echo "=== Package.json ==="
+        cat deploy/package.json
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -116,17 +137,31 @@ jobs:
         app-name: datto-rmm-mcp-server
         slot-name: Production
         package: ./deploy
-        startup-command: node startup.js
+
+    - name: ⚙️ Configure App Settings
+      run: |
+        az webapp config appsettings set \
+          --name datto-rmm-mcp-server \
+          --resource-group msp-ai-dev \
+          --settings MCP_TRANSPORT_MODE=http
 
     - name: ✅ Verify deployment
       run: |
-        echo "Waiting 45 seconds for deployment to complete..."
-        sleep 45
-        echo "Testing health endpoint..."
-        curl -f https://datto-rmm-mcp-server.azurewebsites.net/health || echo "Health check failed - app may still be starting"
+        echo "Waiting 60 seconds for deployment to complete and app to start..."
+        sleep 60
+        
         echo ""
-        echo "Testing root endpoint..."
-        curl -f https://datto-rmm-mcp-server.azurewebsites.net/ || echo "Root endpoint failed - app may still be starting"
+        echo "Testing health endpoint..."
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://datto-rmm-mcp-server.azurewebsites.net/health)
+        echo "Health endpoint returned: $HTTP_CODE"
+        
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ Health check passed!"
+          curl https://datto-rmm-mcp-server.azurewebsites.net/health
+        else
+          echo "⚠️ Health check returned $HTTP_CODE - app may still be starting"
+          echo "Check Azure Portal logs for details"
+        fi
 
     - name: 📊 Deployment Summary
       if: always()
@@ -139,10 +174,11 @@ jobs:
         echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Endpoints" >> $GITHUB_STEP_SUMMARY
-        echo "- **App URL:** https://datto-rmm-mcp-server.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
         echo "- **Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **Service Info:** https://datto-rmm-mcp-server.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP Endpoint:** https://datto-rmm-mcp-server.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📝 Note" >> $GITHUB_STEP_SUMMARY
-        echo "If health check shows as failed, wait 1-2 minutes for Azure to fully start the app, then test manually." >> $GITHUB_STEP_SUMMARY
-        
+        echo "### 📝 Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "1. Test the health endpoint in your browser" >> $GITHUB_STEP_SUMMARY
+        echo "2. If it returns JSON, deployment was successful!" >> $GITHUB_STEP_SUMMARY
+        echo "3. Connect to Azure AI Foundry using the MCP endpoint" >> $GITHUB_STEP_SUMMARY
