@@ -39,63 +39,69 @@ jobs:
     - name: 📦 Install dependencies
       run: pnpm install --no-frozen-lockfile
 
-    - name: 🔨 Build TypeScript API package
-      run: pnpm --filter datto-rmm-api build
-
-    - name: 🔨 Build MCP Server
-      run: pnpm --filter datto-rmm-mcp-server build
-
-    - name: 📋 Check what was built
+    - name: 🔨 Build packages
       run: |
-        echo "=== MCP Server dist ==="
-        ls -la apps/mcp-server/dist/ || echo "No dist directory"
-        echo ""
-        echo "=== API dist ==="
-        ls -la packages/api/dist/ || echo "No dist directory"
-        echo ""
-        echo "=== API src (if no dist) ==="
-        ls -la packages/api/src/ || echo "No src directory"
+        pnpm --filter datto-rmm-api build
+        pnpm --filter datto-rmm-mcp-server build
 
-    - name: 📦 Deploy entire monorepo (simple approach)
+    - name: 📦 Create lean deployment package
       run: |
-        # Just zip the entire built monorepo
         mkdir -p deploy
+        cd deploy
         
-        # Copy everything we need
-        cp -r apps/mcp-server/dist deploy/mcp-dist
-        cp -r apps/mcp-server/node_modules deploy/mcp-node-modules || echo "No mcp node_modules"
-        cp -r packages/api/dist deploy/api-dist || cp -r packages/api/src deploy/api-dist
-        cp -r node_modules deploy/root-node-modules
-        
-        # Create simple package.json
-        cat > deploy/package.json << 'EOF'
+        # Create package.json with only production dependencies
+        cat > package.json << 'EOF'
         {
           "name": "datto-rmm-mcp-server",
           "version": "0.1.0",
           "type": "module",
-          "main": "server.js",
+          "main": "index.js",
           "engines": {
             "node": ">=20.0.0"
+          },
+          "dependencies": {
+            "@modelcontextprotocol/sdk": "^1.0.0",
+            "express": "^4.19.2"
           }
         }
         EOF
         
-        # Create startup server file
-        cat > deploy/server.js << 'EOF'
-        process.env.MCP_TRANSPORT_MODE = 'http';
-        import('./mcp-dist/index.js');
-        EOF
+        # Install ONLY production dependencies (small!)
+        npm install --production
+        
+        # Copy built code
+        cp -r ../apps/mcp-server/dist/* ./
+        
+        # The API package needs to be importable as 'datto-rmm-api'
+        # Copy it into node_modules
+        mkdir -p node_modules/datto-rmm-api
+        
+        # Copy API dist files
+        if [ -d "../packages/api/dist" ]; then
+          cp -r ../packages/api/dist/* node_modules/datto-rmm-api/
+        fi
+        
+        # Copy API package.json
+        cp ../packages/api/package.json node_modules/datto-rmm-api/
+        
+        cd ..
 
-    - name: 📋 Show deployment structure
+    - name: 📋 Check deployment size and structure
       run: |
-        echo "=== Deploy directory ==="
-        ls -la deploy/
+        echo "=== Deployment size ==="
+        du -sh deploy/
         echo ""
-        echo "=== MCP dist contents ==="
-        ls -la deploy/mcp-dist/ || echo "Missing"
+        echo "=== Top level files ==="
+        ls -lh deploy/
         echo ""
-        echo "=== API dist contents ==="
-        ls -la deploy/api-dist/ || echo "Missing"
+        echo "=== Check for index.js ==="
+        ls -lh deploy/index.js || echo "Missing index.js!"
+        echo ""
+        echo "=== API package ==="
+        ls -lh deploy/node_modules/datto-rmm-api/ || echo "Missing API!"
+        echo ""
+        echo "=== Node modules count ==="
+        ls deploy/node_modules/ | wc -l
 
     - name: 🔐 Login to Azure
       uses: azure/login@v2
@@ -104,12 +110,14 @@ jobs:
         tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6F1C414C69A448E38BA714C562263045 }}
         subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4AE0E04EF93F47C1B9E8CA2FFC61DAF7 }}
 
-    - name: ⚙️ Set environment variable
+    - name: ⚙️ Set environment variables
       run: |
         az webapp config appsettings set \
           --name datto-rmm-mcp-server \
           --resource-group msp-ai-dev \
-          --settings MCP_TRANSPORT_MODE=http
+          --settings \
+            MCP_TRANSPORT_MODE=http \
+            NODE_ENV=production
 
     - name: 🚀 Deploy to Azure Web App
       uses: azure/webapps-deploy@v3
@@ -118,17 +126,35 @@ jobs:
         slot-name: Production
         package: ./deploy
 
-    - name: ✅ Wait and verify
+    - name: ✅ Verify deployment
       run: |
         echo "Waiting 60 seconds for app to start..."
         sleep 60
+        
         echo "Testing health endpoint..."
-        curl -v https://datto-rmm-mcp-server.azurewebsites.net/health || echo "Not ready yet"
+        RESPONSE=$(curl -s -w "\n%{http_code}" https://datto-rmm-mcp-server.azurewebsites.net/health)
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | head -n-1)
+        
+        echo "HTTP Status: $HTTP_CODE"
+        echo "Response: $BODY"
+        
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "⚠️ Unexpected status code. Check Azure Portal logs."
+        fi
 
     - name: 📊 Deployment Summary
       if: always()
       run: |
         echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Status:** Deployed" >> $GITHUB_STEP_SUMMARY
-        echo "**Health Check:** https://datto-rmm-mcp-server.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
+        echo "**App Name:** datto-rmm-mcp-server" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Test the Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "- [Health Check](https://datto-rmm-mcp-server.azurewebsites.net/health)" >> $GITHUB_STEP_SUMMARY
+        echo "- [Service Info](https://datto-rmm-mcp-server.azurewebsites.net/)" >> $GITHUB_STEP_SUMMARY
+        echo "- [MCP Endpoint](https://datto-rmm-mcp-server.azurewebsites.net/mcp)" >> $GITHUB_STEP_SUMMARY
+        
