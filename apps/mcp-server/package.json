@@ -28,16 +28,22 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
+    "dev:http": "MCP_TRANSPORT_MODE=http tsx src/index.ts",
     "start": "node dist/index.js",
+    "start:http": "MCP_TRANSPORT_MODE=http node dist/index.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "test:local": "echo 'Testing stdio mode...' && tsx src/index.ts",
+    "test:azure": "echo 'Testing HTTP mode...' && MCP_TRANSPORT_MODE=http tsx src/index.ts"
   },
   "dependencies": {
     "datto-rmm-api": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.19.2"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
@@ -49,6 +55,12 @@
     "model-context-protocol",
     "ai",
     "claude",
-    "assistant"
-  ]
+    "assistant",
+    "azure",
+    "sse",
+    "server-sent-events"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }
