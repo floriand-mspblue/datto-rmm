@@ -1,25 +1,26 @@
 import express, { type Request, type Response, type Application } from 'express';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from './server.js';
 import { loadConfig } from './config.js';
 
 /**
- * Create Express HTTP server with MCP SSE endpoint.
+ * Create Express HTTP server with MCP Streamable HTTP endpoint.
  * This server is designed for cloud deployment (Azure Web Apps, etc.)
+ * Uses the current MCP Streamable HTTP transport (POST-based).
  */
 export function createHttpServer(): Application {
   const app = express();
-  
-  // Enable JSON parsing for any future POST endpoints
+
+  // Enable JSON parsing
   app.use(express.json());
 
   // CORS headers for Azure AI Foundry integration
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
+    res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
       return;
@@ -47,9 +48,9 @@ export function createHttpServer(): Application {
       endpoints: {
         mcp: {
           path: '/mcp',
-          method: 'GET',
-          description: 'MCP Server-Sent Events endpoint',
-          transport: 'SSE',
+          method: 'POST',
+          description: 'MCP Streamable HTTP endpoint',
+          transport: 'StreamableHTTP',
         },
         health: {
           path: '/health',
@@ -70,54 +71,91 @@ export function createHttpServer(): Application {
     });
   });
 
-  // MCP SSE endpoint - the main integration point
-  app.get('/mcp', async (req: Request, res: Response) => {
+  // Store active transports by session ID
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  // MCP Streamable HTTP endpoint - POST for sending messages
+  app.post('/mcp', async (req: Request, res: Response) => {
     try {
-      console.log('New MCP connection established');
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-      // Set SSE headers
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+      // If we have a session ID, reuse the existing transport
+      if (sessionId && transports.has(sessionId)) {
+        const transport = transports.get(sessionId)!;
+        await transport.handleRequest(req, res);
+        return;
+      }
 
-      // Load configuration and create MCP server
+      // New session - create MCP server and transport
+      console.log('New MCP session initiated');
+
       const config = loadConfig();
       const { server: mcpServer } = createServer(config);
 
-      // Create SSE transport
-      const transport = new SSEServerTransport('/mcp', res);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+        onsessioninitialized: (id) => {
+          console.log(`MCP session created: ${id}`);
+          transports.set(id, transport);
+        },
+      });
+
+      // Clean up on close
+      transport.onclose = () => {
+        const id = transport.sessionId;
+        if (id) {
+          console.log(`MCP session closed: ${id}`);
+          transports.delete(id);
+        }
+      };
 
       // Connect the MCP server to the transport
       await mcpServer.connect(transport);
 
-      console.log('MCP server connected via SSE');
-
-      // Handle client disconnect
-      req.on('close', async () => {
-        console.log('MCP connection closed');
-        try {
-          await mcpServer.close();
-        } catch (error) {
-          console.error('Error closing MCP server:', error);
-        }
-      });
-
-      // Handle errors on the response stream
-      res.on('error', (error) => {
-        console.error('SSE response error:', error);
-      });
-
+      // Handle the initial request
+      await transport.handleRequest(req, res);
     } catch (error) {
-      console.error('MCP connection error:', error);
-      
+      console.error('MCP request error:', error);
+
       if (!res.headersSent) {
         res.status(500).json({
-          error: 'Failed to establish MCP connection',
+          error: 'Failed to process MCP request',
           message: error instanceof Error ? error.message : String(error),
         });
       }
     }
+  });
+
+  // MCP Streamable HTTP endpoint - GET for SSE stream (server-to-client notifications)
+  app.get('/mcp', async (req: Request, res: Response) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).json({
+        error: 'Invalid or missing session ID',
+        message: 'Send a POST to /mcp first to initialize a session',
+      });
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    await transport.handleRequest(req, res);
+  });
+
+  // MCP Streamable HTTP endpoint - DELETE to terminate session
+  app.delete('/mcp', async (req: Request, res: Response) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).json({
+        error: 'Invalid or missing session ID',
+      });
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    await transport.handleRequest(req, res);
+    transports.delete(sessionId);
   });
 
   // 404 handler
@@ -125,7 +163,7 @@ export function createHttpServer(): Application {
     res.status(404).json({
       error: 'Not Found',
       message: `Cannot ${req.method} ${req.path}`,
-      availableEndpoints: ['/', '/health', '/mcp'],
+      availableEndpoints: ['/', '/health', 'POST /mcp'],
     });
   });
 
@@ -151,13 +189,13 @@ export async function startHttpServer(): Promise<void> {
   const port = process.env['PORT'] || 8080;
 
   const server = app.listen(port, () => {
-    console.log('╔════════════════════════════════════════════════════════════╗');
-    console.log('║  Datto RMM MCP Server - HTTP/SSE Mode                     ║');
-    console.log('╚════════════════════════════════════════════════════════════╝');
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║  Datto RMM MCP Server - Streamable HTTP Mode            ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
     console.log(`🚀 Server listening on port ${port}`);
-    console.log(`📍 Health check: http://localhost:${port}/health`);
-    console.log(`🔌 MCP endpoint: http://localhost:${port}/mcp`);
+    console.log(`🔍 Health check: http://localhost:${port}/health`);
+    console.log(`🔌 MCP endpoint: POST http://localhost:${port}/mcp`);
     console.log(`📖 API info: http://localhost:${port}/`);
     console.log('');
     console.log('Ready for Azure AI Foundry connections!');
