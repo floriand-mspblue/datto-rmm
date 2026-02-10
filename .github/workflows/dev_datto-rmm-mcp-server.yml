@@ -68,7 +68,8 @@ jobs:
           },
           "dependencies": {
             "@modelcontextprotocol/sdk": "^1.0.0",
-            "express": "^4.19.2"
+            "express": "^4.19.2",
+            "openapi-fetch: "^0.13.5"
           }
         }
         PACKAGEEOF
@@ -122,8 +123,12 @@ jobs:
         az webapp config appsettings set \
           --name ${{ env.AZURE_WEBAPP_NAME }} \
           --resource-group msp-ai-dev \
-          --settings MCP_TRANSPORT_MODE=http NODE_ENV=production SCM_DO_BUILD_DURING_DEPLOYMENT=false
-        
+          --settings \
+            MCP_TRANSPORT_MODE=http \
+            NODE_ENV=production \
+            SCM_DO_BUILD_DURING_DEPLOYMENT=false \
+            WEBSITE_RUN_FROM_PACKAGE=1
+
         az webapp config set \
           --name ${{ env.AZURE_WEBAPP_NAME }} \
           --resource-group msp-ai-dev \
@@ -173,3 +178,4 @@ jobs:
         echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
