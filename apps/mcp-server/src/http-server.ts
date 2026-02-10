@@ -5,14 +5,20 @@ import { loadConfig } from './config.js';
 
 /**
  * Create Express HTTP server with MCP Streamable HTTP endpoint.
- * This server is designed for cloud deployment (Azure Web Apps, etc.)
- * Uses the current MCP Streamable HTTP transport (POST-based).
+ * Uses the MCP Streamable HTTP transport (POST-based) for Azure AI Foundry.
  */
 export function createHttpServer(): Application {
   const app = express();
 
-  // Enable JSON parsing
-  app.use(express.json());
+  // Parse JSON for all routes EXCEPT /mcp
+  // The MCP StreamableHTTPServerTransport reads the raw body stream itself
+  app.use((req, res, next) => {
+    if (req.path === '/mcp') {
+      next();
+    } else {
+      express.json()(req, res, next);
+    }
+  });
 
   // CORS headers for Azure AI Foundry integration
   app.use((req, res, next) => {
@@ -60,14 +66,6 @@ export function createHttpServer(): Application {
       },
       documentation: 'https://github.com/josh-fisher/datto-rmm',
       tools: '39+ MCP tools available',
-      features: [
-        'Device management',
-        'Site management',
-        'Alert monitoring',
-        'Job execution',
-        'Audit logging',
-        'Activity tracking',
-      ],
     });
   });
 
@@ -79,7 +77,7 @@ export function createHttpServer(): Application {
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-      // If we have a session ID, reuse the existing transport
+      // Reuse existing transport for this session
       if (sessionId && transports.has(sessionId)) {
         const transport = transports.get(sessionId)!;
         await transport.handleRequest(req, res);
@@ -210,7 +208,6 @@ export async function startHttpServer(): Promise<void> {
       process.exit(0);
     });
 
-    // Force shutdown after 10 seconds
     setTimeout(() => {
       console.log('⚠️  Forced shutdown');
       process.exit(1);
