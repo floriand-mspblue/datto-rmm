@@ -67,7 +67,7 @@ jobs:
             "node": ">=22.0.0"
           },
           "dependencies": {
-            "@modelcontextprotocol/sdk": "^1.0.0",
+            "@modelcontextprotocol/sdk": "^1.8.0",
             "express": "^4.19.2",
             "openapi-fetch": "^0.13.5"
           }
@@ -178,5 +178,6 @@ jobs:
         echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
+
 
 
