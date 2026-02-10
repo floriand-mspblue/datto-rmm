@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "datto-rmm-api": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.8.0",
     "express": "^4.19.2"
   },
   "devDependencies": {
