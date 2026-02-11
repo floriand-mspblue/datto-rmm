@@ -6,7 +6,13 @@ describe('OAuthTokenManager', () => {
     apiKey: 'test-api-key',
     apiSecret: 'test-api-secret',
   };
-  const mockTokenEndpoint = 'https://test-api.example.com/oauth/token';
+  const mockTokenEndpoint = 'https://test-api.example.com/auth/oauth/token';
+
+  // Expected Basic auth header: base64("public-client:public")
+  const expectedBasicAuth = `Basic ${btoa('public-client:public')}`;
+
+  // Expected body with password grant
+  const expectedBody = 'grant_type=password&username=test-api-key&password=test-api-secret';
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -42,9 +48,9 @@ describe('OAuthTokenManager', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: expect.stringMatching(/^Basic /),
+        Authorization: expectedBasicAuth,
       },
-      body: 'grant_type=client_credentials',
+      body: expectedBody,
     });
   });
 
