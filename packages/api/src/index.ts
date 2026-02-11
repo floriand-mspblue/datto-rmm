@@ -8,6 +8,7 @@ export {
 // Platforms
 export {
   Platform,
+  PLATFORM_BASE_URLS,
   PLATFORM_URLS,
   getPlatformUrl,
   getTokenEndpoint,
