@@ -47,7 +47,7 @@ function parsePlatform(value: string | undefined): Platform {
  * - DATTO_API_SECRET: Datto RMM API secret
  *
  * Optional environment variables:
- * - DATTO_PLATFORM: Platform name (default: merlot)
+ * - DATTO_PLATFORM: Platform name (default: syrah)
  */
 export function loadConfig(): ServerConfig {
   const apiKey = process.env['DATTO_API_KEY'];
