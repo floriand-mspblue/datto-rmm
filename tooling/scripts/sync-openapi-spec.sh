@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SPECS_DIR="$WORKSPACE_ROOT/specs"
 
-# Default to merlot, can be overridden with DATTO_PLATFORM env var
-PLATFORM="${DATTO_PLATFORM:-merlot}"
+# Default to syrah, can be overridden with DATTO_PLATFORM env var
+PLATFORM="${DATTO_PLATFORM:-syrah}"
 SPEC_URL="https://${PLATFORM}-api.centrastage.net/api/v3/api-docs/Datto-RMM"
 OUTPUT_FILE="$SPECS_DIR/datto-rmm-openapi.json"
 
