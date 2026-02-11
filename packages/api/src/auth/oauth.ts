@@ -4,9 +4,9 @@ import type { AuthConfig } from './middleware.js';
  * OAuth 2.0 client credentials for Datto RMM API.
  */
 export interface OAuthCredentials {
-  /** API Key (client ID) */
+  /** API Key (used as username in password grant) */
   apiKey: string;
-  /** API Secret (client secret) */
+  /** API Secret (used as password in password grant) */
   apiSecret: string;
 }
 
@@ -22,6 +22,13 @@ export interface TokenResponse {
 /**
  * Manages OAuth 2.0 tokens for the Datto RMM API.
  *
+ * Uses the Resource Owner Password Credentials (password) grant type
+ * with a public client, matching Datto's official API documentation:
+ * - Basic Auth: public-client:public
+ * - grant_type: password
+ * - username: API Key
+ * - password: API Secret
+ *
  * Features:
  * - Automatic token caching
  * - Proactive token refresh (5 minutes before expiry)
@@ -31,7 +38,7 @@ export interface TokenResponse {
  * ```ts
  * const tokenManager = new OAuthTokenManager(
  *   { apiKey: 'xxx', apiSecret: 'yyy' },
- *   'https://merlot-api.centrastage.net/api/public/oauth/token'
+ *   'https://syrah-api.centrastage.net/auth/oauth/token'
  * );
  *
  * const token = await tokenManager.getToken();
@@ -75,19 +82,29 @@ export class OAuthTokenManager {
 
   /**
    * Force a token refresh.
+   *
+   * Uses the password grant type with public-client:public as the
+   * Basic Auth credentials, and the API key/secret as username/password
+   * in the request body. This matches Datto's official API documentation.
    */
   async refreshToken(): Promise<string> {
-    const credentials = btoa(
-      `${this.credentials.apiKey}:${this.credentials.apiSecret}`,
-    );
+    // Basic Auth with public-client:public (matches curl --user public-client:public)
+    const basicAuth = btoa('public-client:public');
+
+    // Send API key as username and API secret as password in the body
+    const body = new URLSearchParams({
+      grant_type: 'password',
+      username: this.credentials.apiKey,
+      password: this.credentials.apiSecret,
+    });
 
     const response = await fetch(this.tokenEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${credentials}`,
+        Authorization: `Basic ${basicAuth}`,
       },
-      body: 'grant_type=client_credentials',
+      body: body.toString(),
     });
 
     if (!response.ok) {
