@@ -34,6 +34,26 @@ export function createHttpServer(): Application {
     next();
   });
 
+  // API Key authentication for MCP endpoint
+  app.use((req, res, next) => {
+    if (req.path === '/health' || req.path === '/') {
+      return next();
+    }
+  
+    const expectedKey = process.env['MCP_API_KEY'];
+    if (!expectedKey) {
+      return next(); // No key configured = auth disabled
+    }
+  
+    const providedKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+    if (providedKey !== expectedKey) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+  
+    next();
+  });
+
   // Health check endpoint (required for Azure monitoring)
   app.get('/health', (req: Request, res: Response) => {
     res.json({
