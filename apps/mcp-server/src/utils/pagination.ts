@@ -9,7 +9,7 @@ export interface PaginationParams {
 /**
  * Default page size for list operations.
  */
-export const DEFAULT_PAGE_SIZE = 250;
+export const DEFAULT_PAGE_SIZE = 100;
 
 /**
  * Maximum page size allowed by the API.
