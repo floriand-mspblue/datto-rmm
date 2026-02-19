@@ -1,4 +1,5 @@
 import type { DattoClient } from 'datto-rmm-api';
+import { cleanQuery } from '../utils/pagination.js';
 import { handleResponse, errorResult, successResult, type ToolResult } from '../utils/response.js';
 import type * as T from '../types.js';
 
@@ -26,7 +27,7 @@ export async function getActivityLogs(
 
     const response = await client.GET('/v2/activity-logs', {
       params: {
-        query: {
+        query: cleanQuery({
           size: args.size,
           order: args.order,
           from: args.from,
@@ -36,7 +37,7 @@ export async function getActivityLogs(
           actions: args.actions,
           siteIds: args.siteIds,
           userIds: args.userIds,
-        },
+        }),
       },
     });
     const data = handleResponse<T.ActivityLogsPage>(response);
