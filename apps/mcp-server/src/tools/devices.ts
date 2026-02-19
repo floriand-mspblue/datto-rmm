@@ -1,5 +1,5 @@
 import type { DattoClient } from 'datto-rmm-api';
-import { normalizePagination, parsePageInfo } from '../utils/pagination.js';
+import { normalizePagination, parsePageInfo, cleanQuery } from '../utils/pagination.js';
 import { handleResponse, handleVoidResponse, errorResult, successResult, type ToolResult } from '../utils/response.js';
 import type * as T from '../types.js';
 
@@ -147,7 +147,7 @@ export async function listDeviceOpenAlerts(
         query: {
           page: pagination.page,
           max: pagination.max,
-          muted: args.muted,
+          ...cleanQuery({ muted: args.muted }),
         },
       },
     });
@@ -195,7 +195,7 @@ export async function listDeviceResolvedAlerts(
         query: {
           page: pagination.page,
           max: pagination.max,
-          muted: args.muted,
+          ...cleanQuery({ muted: args.muted }),
         },
       },
     });
