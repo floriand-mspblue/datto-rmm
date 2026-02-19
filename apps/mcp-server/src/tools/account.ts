@@ -1,5 +1,5 @@
 import type { DattoClient } from 'datto-rmm-api';
-import { normalizePagination, parsePageInfo } from '../utils/pagination.js';
+import { normalizePagination, parsePageInfo, cleanQuery } from '../utils/pagination.js';
 import { handleResponse, errorResult, successResult, type ToolResult } from '../utils/response.js';
 import type * as T from '../types.js';
 
@@ -53,7 +53,7 @@ export async function listSites(
         query: {
           page: pagination.page,
           max: pagination.max,
-          siteName: args.siteName,
+          ...cleanQuery({ siteName: args.siteName }),
         },
       },
     });
@@ -119,11 +119,13 @@ export async function listDevices(
         query: {
           page: pagination.page,
           max: pagination.max,
-          hostname: args.hostname,
-          siteName: args.siteName,
-          deviceType: args.deviceType,
-          operatingSystem: args.operatingSystem,
-          filterId: args.filterId,
+          ...cleanQuery({
+            hostname: args.hostname,
+            siteName: args.siteName,
+            deviceType: args.deviceType,
+            operatingSystem: args.operatingSystem,
+            filterId: args.filterId,
+          }),
         },
       },
     });
@@ -314,7 +316,7 @@ export async function listOpenAlerts(
         query: {
           page: pagination.page,
           max: pagination.max,
-          muted: args.muted,
+          ...cleanQuery({ muted: args.muted }),
         },
       },
     });
@@ -373,7 +375,7 @@ export async function listResolvedAlerts(
         query: {
           page: pagination.page,
           max: pagination.max,
-          muted: args.muted,
+          ...cleanQuery({ muted: args.muted }),
         },
       },
     });
