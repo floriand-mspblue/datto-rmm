@@ -58,3 +58,17 @@ export function parsePageInfo(response: {
     hasMore: page < totalPages,
   };
 }
+
+/**
+ * Remove undefined, null, empty string, and zero values from query params.
+ * Prevents the Datto API from treating empty/default values as active filters.
+ */
+export function cleanQuery<T extends Record<string, unknown>>(params: T): Partial<T> {
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '' && value !== 0) {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned as Partial<T>;
+}
