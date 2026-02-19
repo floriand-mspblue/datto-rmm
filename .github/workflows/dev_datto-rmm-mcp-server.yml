@@ -40,11 +40,28 @@ jobs:
     - name: 📦 Install all dependencies
       run: pnpm install --no-frozen-lockfile
 
+    - name: 🧹 Clean stale build output
+      run: |
+        rm -rf apps/mcp-server/dist
+        rm -rf packages/api/dist
+
     - name: 🔨 Generate API types and build
       run: |
         pnpm --filter datto-rmm-api generate
         pnpm --filter datto-rmm-api build
         pnpm --filter datto-rmm-mcp-server build
+
+    - name: 🔍 Verify build output is fresh
+      run: |
+        echo "=== Checking pagination.js for DEFAULT_PAGE_SIZE ==="
+        grep -n "DEFAULT_PAGE_SIZE" apps/mcp-server/dist/utils/pagination.js || echo "WARNING: DEFAULT_PAGE_SIZE not found!"
+        echo ""
+        echo "=== Checking account.js for cleanQuery ==="
+        grep -c "cleanQuery" apps/mcp-server/dist/tools/account.js && echo "✅ cleanQuery found in account.js" || echo "❌ cleanQuery NOT found in account.js"
+        echo ""
+        echo "=== Build timestamps ==="
+        ls -la apps/mcp-server/dist/utils/pagination.js
+        ls -la apps/mcp-server/dist/tools/account.js
 
     - name: 📦 Bundle for deployment
       run: |
@@ -84,13 +101,25 @@ jobs:
         cp -r packages/api/dist deploy/node_modules/datto-rmm-api/
         cp packages/api/package.json deploy/node_modules/datto-rmm-api/
 
-    - name: 📋 Verify structure
+    - name: 📋 Verify deployment package
       run: |
         echo "=== Deploy package.json ==="
         cat deploy/package.json
         echo ""
         echo "=== dist/ ==="
         ls -la deploy/dist/
+        echo ""
+        echo "=== dist/utils/ ==="
+        ls -la deploy/dist/utils/
+        echo ""
+        echo "=== dist/tools/ ==="
+        ls -la deploy/dist/tools/
+        echo ""
+        echo "=== Verify pagination.js in deploy ==="
+        grep "DEFAULT_PAGE_SIZE" deploy/dist/utils/pagination.js
+        echo ""
+        echo "=== Verify cleanQuery in deploy ==="
+        grep -c "cleanQuery" deploy/dist/tools/account.js && echo "✅ cleanQuery present" || echo "❌ cleanQuery missing"
         echo ""
         echo "=== datto-rmm-api package ==="
         ls -la deploy/node_modules/datto-rmm-api/
@@ -178,7 +207,3 @@ jobs:
         echo "- **Health:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" >> $GITHUB_STEP_SUMMARY
         echo "- **Info:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/" >> $GITHUB_STEP_SUMMARY
         echo "- **MCP:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/mcp" >> $GITHUB_STEP_SUMMARY
-
-
-
-
